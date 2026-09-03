@@ -122,33 +122,66 @@ jobs:
 
   #docker
   docker:
-    name: Docker
+    name: Docker Build & Push
     runs-on: ubuntu-latest
-    needs: build
-    
+
+    needs:
+      - test
+      - security
+
+    permissions:
+      contents: read
+      packages: write
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        
-      - name: Build Docker image
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and Push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/cicd-test:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/cicd-test:latest
+
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+
+    needs: docker
+
+    steps:
+      - name: Deploy
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker build \
-          -t cicd-test:${{ github.sha }} \
-          .
-        
-      - name: Test Docker image
-        run: |
-          docker run -d --name cicd-test -p 8080:8080 cicd-test:${{ github.sha }}
-          trap 'docker rm -f cicd-test' EXIT
-          for i in $(seq 1 15); do
-            if curl -fsS http://127.0.0.1:8080/health; then
-              echo
-              exit 0
-            fi
-            sleep 1
-          done
-          docker logs cicd-test
-          exit 1
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          echo "$VPS_SSH_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts
+
+          ssh "$VPS_USER@$VPS_HOST" "
+            cd /opt/cicd-test &&
+            export IMAGE_TAG=$IMAGE_TAG &&
+            docker compose pull &&
+            docker compose up -d &&
+            docker image prune -f
+          "
 
   #final
   final:
