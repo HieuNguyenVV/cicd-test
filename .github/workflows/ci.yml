@@ -26,7 +26,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: '1.25.1'
           cache: true
 
       - name: Check formatting
@@ -53,17 +53,11 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: '1.25.1'
           cache: true
 
       - name: Download dependencies
         run: go mod download
-        
-      - name: Check Go
-        run: |
-          go version
-          go env GOROOT
-          go env GOTOOLDIR
 
       - name: Run tests
         run: go test ./...
@@ -90,7 +84,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: '1.25.1'
           cache: true
 
       - name: Build
@@ -120,7 +114,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: '1.25.1'
           cache: true
 
       - name: Check vulnerabilities
