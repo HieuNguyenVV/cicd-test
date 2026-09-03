@@ -88,8 +88,7 @@ jobs:
           cache: true
 
       - name: Build
-        run: 
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o app .
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o app ./cmd/server
 
       - name: Verify binary
         run:
@@ -121,6 +120,35 @@ jobs:
         run: |
           go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
+  #docker
+  docker:
+    name: Docker
+    runs-on: ubuntu-latest
+    needs: build
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Build Docker image
+        run: |
+          docker build \
+          -t cicd-test:${{ github.sha }} \
+          .
+        
+      - name: Test Docker image
+        run: |
+          docker run -d --name cicd-test -p 8080:8080 cicd-test:${{ github.sha }}
+          trap 'docker rm -f cicd-test' EXIT
+          for i in $(seq 1 15); do
+            if curl -fsS http://127.0.0.1:8080/health; then
+              echo
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs cicd-test
+          exit 1
 
   #final
   final:
@@ -131,6 +159,7 @@ jobs:
       - test
       - build
       - security
+      - docker
 
     steps:
       - name: CI passed
