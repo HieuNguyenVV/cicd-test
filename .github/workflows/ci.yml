@@ -115,7 +115,9 @@ jobs:
           cache: true
 
       - name: Check vulnerabilities
-        run: go run golang.org/x/vuln/cmd/govulncheck ./...
+        run: |
+          go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
 
   #final
   final:
