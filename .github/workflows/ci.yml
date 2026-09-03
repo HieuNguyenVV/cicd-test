@@ -10,10 +10,13 @@ on:
     branches:
       - main
       - develop
+permissions:
+  contents: read
 
 jobs:
-  test:
-    name: Test & Build
+  # Lint the code
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
 
     steps:
@@ -26,15 +29,104 @@ jobs:
           go-version: '1.24'
           cache: true
 
-      - name: Download dependencies
-        run: go mod download
-
       - name: Check formatting
         run: |
-          test -z "$(gofmt -l .)"
+          files=$(gofmt -l .)
+          if [ -n "$files" ]; then
+            echo "gofmt errors in the following files:"
+            echo "$files"
+            exit 1
+          fi
+      - name: Go vet
+        run: go vet ./...
+
+  # Run tests
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: lint
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
 
       - name: Run tests
         run: go test ./...
 
+      - name: Run coverage
+        run: go test ./... -coverprofile=coverage.out
+
+      - name: Run race detector
+        run: go test ./... -race
+
+      - name: Show coverage
+        run: go tool cover -html=coverage.out
+
+  # Build the binary
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
       - name: Build
-        run: go build -o app .
+        run: 
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o app .
+
+      - name: Verify binary
+        run:
+          file app
+          ls -lh app
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-app
+          path: app
+
+  #Security scan
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+    needs: lint
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Check vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck ./...
+
+  #final
+  final:
+    name: Final
+    runs-on: ubuntu-latest
+    needs: 
+      - lint
+      - test
+      - build
+      - security
+
+    steps:
+      - name: CI passed
+        run: echo "CI passed"
