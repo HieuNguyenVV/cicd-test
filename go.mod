@@ -1,6 +1,6 @@
 module demo-app
 
-go 1.25.0
+go 1.25.13
 
 require (
 	golang.org/x/mod v0.39.0 // indirect
