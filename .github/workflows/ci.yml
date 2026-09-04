@@ -1,4 +1,4 @@
-name: Go CI
+name: Go CI/CD
 
 on:
   push:
@@ -124,6 +124,8 @@ jobs:
   docker:
     name: Docker Build & Push
     runs-on: ubuntu-latest
+    # Chỉ push image khi push code, không chạy trên pull_request
+    if: github.event_name == 'push'
 
     needs:
       - test
@@ -156,11 +158,14 @@ jobs:
           push: true
           tags: |
             ${{ steps.image.outputs.name }}:${{ github.sha }}
-            ${{ steps.image.outputs.name }}:latest
+            ${{ steps.image.outputs.name }}:${{ github.ref_name }}
+            ${{ steps.image.outputs.name }}:${{ github.ref == 'refs/heads/main' && 'latest' || github.ref_name }}
 
   deploy:
     name: Deploy to VPS
     runs-on: ubuntu-latest
+    # Chỉ deploy production từ main — tránh lẫn với develop
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     needs: docker
 
