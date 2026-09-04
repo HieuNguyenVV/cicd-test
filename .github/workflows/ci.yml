@@ -172,6 +172,7 @@ jobs:
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
           IMAGE_TAG: ${{ github.sha }}
           GITHUB_USERNAME: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
@@ -185,11 +186,21 @@ jobs:
           GITHUB_USERNAME=$(echo "$GITHUB_USERNAME" | tr '[:upper:]' '[:lower:]')
 
           ssh "$VPS_USER@$VPS_HOST" "
-            cd ~/cicd-test &&
-            export GITHUB_USERNAME=$GITHUB_USERNAME &&
-            export IMAGE_TAG=$IMAGE_TAG &&
-            docker compose pull &&
-            docker compose up -d &&
+            set -e
+
+            if [ ! -d ~/cicd-test/.git ]; then
+              git clone https://github.com/$REPO.git ~/cicd-test
+            fi
+
+            cd ~/cicd-test
+            git fetch origin
+            git checkout $IMAGE_TAG
+
+            export GITHUB_USERNAME=$GITHUB_USERNAME
+            export IMAGE_TAG=$IMAGE_TAG
+
+            docker compose pull
+            docker compose up -d
             docker image prune -f
           "
 
