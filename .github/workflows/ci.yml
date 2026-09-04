@@ -185,7 +185,7 @@ jobs:
           GITHUB_USERNAME=$(echo "$GITHUB_USERNAME" | tr '[:upper:]' '[:lower:]')
 
           ssh "$VPS_USER@$VPS_HOST" "
-            cd /cicd-test &&
+            cd ~/cicd-test &&
             export GITHUB_USERNAME=$GITHUB_USERNAME &&
             export IMAGE_TAG=$IMAGE_TAG &&
             docker compose pull &&
