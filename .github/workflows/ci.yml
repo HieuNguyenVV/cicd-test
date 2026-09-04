@@ -148,7 +148,7 @@ jobs:
         id: image
         run: |
           echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-          
+
       - name: Build and Push
         uses: docker/build-push-action@v6
         with:
@@ -171,6 +171,7 @@ jobs:
           VPS_USER: ${{ secrets.VPS_USER }}
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
           IMAGE_TAG: ${{ github.sha }}
+          GITHUB_USERNAME: ${{ github.repository_owner }}
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
@@ -180,8 +181,12 @@ jobs:
 
           ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts
 
+          # GHCR requires lowercase owner/repo
+          GITHUB_USERNAME=$(echo "$GITHUB_USERNAME" | tr '[:upper:]' '[:lower:]')
+
           ssh "$VPS_USER@$VPS_HOST" "
-            cd /opt/cicd-test &&
+            cd /cicd-test &&
+            export GITHUB_USERNAME=$GITHUB_USERNAME &&
             export IMAGE_TAG=$IMAGE_TAG &&
             docker compose pull &&
             docker compose up -d &&
