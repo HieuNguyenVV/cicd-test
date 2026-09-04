@@ -2,173 +2,148 @@ name: Go CI/CD
 
 on:
   push:
-    branches:
-      - main
-      - develop
-
+    branches: [main, develop]
   pull_request:
-    branches:
-      - main
-      - develop
+    branches: [main, develop]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
+env:
+  GO_VERSION: "1.25.13"
+
 jobs:
-  # Lint the code
   lint:
     name: Lint
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5
         with:
-          go-version: '1.25.13'
+          go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - name: Check formatting
+      - name: Format
         run: |
           files=$(gofmt -l .)
           if [ -n "$files" ]; then
-            echo "gofmt errors in the following files:"
+            echo "gofmt errors:"
             echo "$files"
             exit 1
           fi
-      - name: Go vet
+
+      - name: Vet
         run: go vet ./...
 
-  # Run tests
   test:
     name: Test
     runs-on: ubuntu-latest
     needs: lint
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5
         with:
-          go-version: '1.25.13'
+          go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - name: Download dependencies
-        run: go mod download
+      - name: Test (race + coverage)
+        run: |
+          go test -race -coverprofile=coverage.out ./...
+          go tool cover -func=coverage.out
 
-      - name: Run tests
-        run: go test ./...
-
-      - name: Run race detector
-        run: go test -race ./...
-
-      - name: Run coverage
-        run: go test -coverprofile=coverage.out ./...
-
-      - name: Show coverage
-        run: go tool cover -func=coverage.out
-
-  # Build the binary
   build:
     name: Build
     runs-on: ubuntu-latest
     needs: test
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5
         with:
-          go-version: '1.25.13'
+          go-version: ${{ env.GO_VERSION }}
           cache: true
 
       - name: Build
         run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o app ./cmd/server
 
       - name: Verify binary
-        run:
+        run: |
           file app
           ls -lh app
-      - name: Upload binary
-        uses: actions/upload-artifact@v4
+
+      - uses: actions/upload-artifact@v4
         with:
           name: go-app
           path: app
+          retention-days: 7
 
-  #Security scan
   security:
     name: Security
     runs-on: ubuntu-latest
     needs: lint
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5
         with:
-          go-version: '1.25.13'
+          go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - name: Check vulnerabilities
-        run: |
-          go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
-  #docker
   docker:
     name: Docker Build & Push
     runs-on: ubuntu-latest
-    # Chỉ push image khi push code, không chạy trên pull_request
     if: github.event_name == 'push'
-
-    needs:
-      - test
-      - security
-
+    needs: [test, security]
     permissions:
       contents: read
       packages: write
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Login to GHCR
-        uses: docker/login-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Get lowercase image name
+      - name: Image name
         id: image
-        run: |
-          echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
-      - name: Build and Push
-        uses: docker/build-push-action@v6
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=raw,value=${{ github.sha }}
+            type=ref,event=branch
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: |
-            ${{ steps.image.outputs.name }}:${{ github.sha }}
-            ${{ steps.image.outputs.name }}:${{ github.ref_name }}
-            ${{ steps.image.outputs.name }}:${{ github.ref == 'refs/heads/main' && 'latest' || github.ref_name }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   deploy:
     name: Deploy to VPS
     runs-on: ubuntu-latest
-    # Chỉ deploy production từ main — tránh lẫn với develop
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-
     needs: docker
-
     steps:
       - name: Deploy
         env:
@@ -179,47 +154,47 @@ jobs:
           GITHUB_USERNAME: ${{ github.repository_owner }}
           REPO: ${{ github.repository }}
         run: |
+          set -euo pipefail
+
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-
           echo "$VPS_SSH_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-
           ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts
 
-          # GHCR requires lowercase owner/repo
           GITHUB_USERNAME=$(echo "$GITHUB_USERNAME" | tr '[:upper:]' '[:lower:]')
 
-          ssh "$VPS_USER@$VPS_HOST" "
-            set -e
+          ssh "$VPS_USER@$VPS_HOST" bash -s <<EOF
+          set -euo pipefail
 
-            if [ ! -d ~/cicd-test/.git ]; then
-              git clone https://github.com/$REPO.git ~/cicd-test
-            fi
+          if [ ! -d ~/cicd-test/.git ]; then
+            git clone "https://github.com/${REPO}.git" ~/cicd-test
+          fi
 
-            cd ~/cicd-test
-            git fetch origin
-            git checkout $IMAGE_TAG
+          cd ~/cicd-test
+          git fetch origin
+          git checkout "${IMAGE_TAG}"
 
-            export GITHUB_USERNAME=$GITHUB_USERNAME
-            export IMAGE_TAG=$IMAGE_TAG
+          export GITHUB_USERNAME="${GITHUB_USERNAME}"
+          export IMAGE_TAG="${IMAGE_TAG}"
 
-            docker compose pull
-            docker compose up -d
-            docker image prune -f
-          "
+          docker compose pull
+          docker compose up -d
+          docker image prune -f
+          EOF
 
-  #final
   final:
     name: Final
     runs-on: ubuntu-latest
-    needs: 
-      - lint
-      - test
-      - build
-      - security
-      - docker
-
+    needs: [lint, test, build, security, docker, deploy]
+    if: |
+      always() &&
+      !cancelled() &&
+      needs.lint.result == 'success' &&
+      needs.test.result == 'success' &&
+      needs.build.result == 'success' &&
+      needs.security.result == 'success' &&
+      (needs.docker.result == 'success' || needs.docker.result == 'skipped') &&
+      (needs.deploy.result == 'success' || needs.deploy.result == 'skipped')
     steps:
-      - name: CI passed
-        run: echo "CI passed"
+      - run: echo "CI/CD passed"
