@@ -2,9 +2,33 @@ name: Go CI/CD
 
 on:
   push:
-    branches: [main, develop]
+    branches:
+      - main
+      - develop
+      - "feat/**"
+      - "feature/**"
+      - "fix/**"
+      - "bugfix/**"
+      - "hotfix/**"
+      - "chore/**"
+      - "refactor/**"
+      - "docs/**"
+      - "ci/**"
+      - "test/**"
   pull_request:
-    branches: [main, develop]
+    branches:
+      - main
+      - develop
+      - "feat/**"
+      - "feature/**"
+      - "fix/**"
+      - "bugfix/**"
+      - "hotfix/**"
+      - "chore/**"
+      - "refactor/**"
+      - "docs/**"
+      - "ci/**"
+      - "test/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -101,7 +125,8 @@ jobs:
   docker:
     name: Docker Build & Push
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
+    # Chỉ push image trên main/develop — branch feature chỉ chạy CI
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
     needs: [test, security]
     permissions:
       contents: read
